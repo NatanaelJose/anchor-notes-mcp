@@ -38,7 +38,12 @@ export async function anchorRequest<T = any>(
     // non-JSON body (e.g. a proxy error page)
   }
   if (!res.ok) {
-    const detail = typeof data === "object" && data?.message ? data.message : String(text).slice(0, 300);
+    const detail =
+      typeof data === "object" && data?.message
+        ? data.message
+        : /^\s*</.test(text)
+          ? "got a web page instead of the Anchor API (check the URL)"
+          : String(text).slice(0, 300);
     throw new AnchorError(res.status, `Anchor returned HTTP ${res.status}: ${detail}`, data);
   }
   return data as T;

@@ -55,11 +55,20 @@ claude mcp add --scope user anchor -e ANCHOR_URL=https://notes.example.com -e AN
 
 **Attachments:** attachments live outside the note text in Anchor. Edits never touch them, but this server does not read or upload them yet.
 
+## Security
+
+- Your API token stays in the local config file and only goes to your Anchor server.
+- Your password is never stored.
+- The server can't permanently delete notes, only move them to the trash.
+- `npx -y anchor-notes-mcp` always runs the latest release. To pin a version, use `anchor-notes-mcp@0.1.1` in your Claude config.
+
+See [SECURITY.md](SECURITY.md) for details and how to report a vulnerability.
+
 ## Development
 
 ```bash
 npm install
-npm test          # Anchor's markdown round-trip fixtures, both directions
+npm test          # markdown round-trip fixtures from Anchor + every tool against a fake Anchor
 npm run build     # dist/cli.js, a single self-contained file
 npm run smoke     # end-to-end against your configured instance; creates and trashes a test note (--keep to inspect it)
 node dist/cli.js setup --local   # register this checkout instead of the npm package

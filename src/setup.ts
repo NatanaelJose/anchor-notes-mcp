@@ -113,6 +113,10 @@ export async function setup(local: boolean) {
     let user: Me | undefined;
     if (existing?.token && existing.url === url && (await p.yes("Keep the saved API token?"))) token = existing.token;
     else if (await p.yes("Sign in with email and password? (No = paste an API token)")) {
+      const host = new URL(url).hostname;
+      const local = host === "localhost" || host === "127.0.0.1" || host === "::1";
+      if (url.startsWith("http://") && !local && !(await p.yes("This URL is not HTTPS, so your password travels unencrypted. Continue?", false)))
+        throw new Error("Cancelled. Use the https:// address of your Anchor, or paste an API token instead.");
       const email = await p.ask("Email");
       ({ token, user } = await tokenFromLogin(url, email, await p.secret("Password (not stored)")));
     } else token = (await p.secret("API token")).trim();
