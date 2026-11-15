@@ -33,23 +33,24 @@ function prompter() {
     closed = true;
     for (const resolve of waiting.splice(0)) resolve(null);
   });
-  const read = async (prompt: string) => {
+  const read = async (prompt: string, raw = false) => {
     stdout.write(prompt);
     const line = lines.length ? lines.shift()! : closed ? null : await new Promise<string | null>((r) => waiting.push(r));
     if (line === null) throw new Error("Setup cancelled (input closed).");
     if (!stdin.isTTY) stdout.write("\n");
-    return line.trim();
+    return raw ? line.replace(/\r$/, "") : line.trim();
   };
   return {
     async ask(question: string, fallback?: string) {
       const answer = await read(fallback ? `${question} [${fallback}]: ` : `${question}: `);
       return answer || fallback || "";
     },
+    /** Hidden input, kept verbatim: a password may start or end with spaces. */
     async secret(question: string) {
       stdout.write(`${question}: `);
       muted = true;
       try {
-        return await read("");
+        return await read("", true);
       } finally {
         muted = false;
         if (stdin.isTTY) stdout.write("\n");
@@ -63,16 +64,28 @@ function prompter() {
   };
 }
 
+/** Runs one setup step, naming it in the error so a 401 says which credential was rejected. */
+async function step<T>(label: string, body: () => Promise<T>): Promise<T> {
+  try {
+    return await body();
+  } catch (e) {
+    throw new Error(`${label} failed: ${e instanceof Error ? e.message : e}`);
+  }
+}
+
 async function tokenFromLogin(url: string, email: string, password: string): Promise<string> {
-  const login = await anchorRequest<{ accessToken?: string; message?: string }>(url, null, "POST", "/auth/login", {
-    email,
-    password,
-  });
+  const login = await step("Sign-in (email/password)", () =>
+    anchorRequest<{ accessToken?: string; message?: string }>(url, null, "POST", "/auth/login", { email, password }),
+  );
   if (!login.accessToken) throw new Error(login.message ?? "Login returned no token (account pending approval?)");
   // Reuse an existing API token: regenerating would break every other client using it.
-  const current = await anchorRequest<{ apiToken: string | null }>(url, login.accessToken, "GET", "/auth/api-token");
+  const current = await step("Reading your API token", () =>
+    anchorRequest<{ apiToken: string | null }>(url, login.accessToken!, "GET", "/auth/api-token"),
+  );
   if (current.apiToken) return current.apiToken;
-  const created = await anchorRequest<{ apiToken: string }>(url, login.accessToken, "POST", "/auth/api-token/regenerate");
+  const created = await step("Creating an API token", () =>
+    anchorRequest<{ apiToken: string }>(url, login.accessToken!, "POST", "/auth/api-token/regenerate"),
+  );
   return created.apiToken;
 }
 
@@ -92,7 +105,7 @@ export async function setup(local: boolean) {
       token = await tokenFromLogin(url, email, await p.secret("Password (not stored)"));
     } else token = await p.secret("API token");
 
-    const me = await anchorRequest<Me>(url, token, "GET", "/auth/me");
+    const me = await step("Checking the API token", () => anchorRequest<Me>(url, token, "GET", "/auth/me"));
     saveConfig({ url, token });
     console.log(`\nConnected as ${me.name ?? me.email}. Saved to ${CONFIG_PATH}\n`);
 
