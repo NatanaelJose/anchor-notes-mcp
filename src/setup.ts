@@ -34,7 +34,12 @@ function prompter() {
     for (const resolve of waiting.splice(0)) resolve(null);
   });
   const read = async (prompt: string, raw = false) => {
-    stdout.write(prompt);
+    // Through readline, not stdout: in a terminal it redraws the line with its own prompt ("> " by default).
+    if (closed) output.write(prompt); // piped input already ended; queued lines are still answered
+    else {
+      rl.setPrompt(prompt);
+      rl.prompt();
+    }
     const line = lines.length ? lines.shift()! : closed ? null : await new Promise<string | null>((r) => waiting.push(r));
     if (line === null) throw new Error("Setup cancelled (input closed).");
     if (!stdin.isTTY) stdout.write("\n");
@@ -73,21 +78,27 @@ async function step<T>(label: string, body: () => Promise<T>): Promise<T> {
   }
 }
 
-async function tokenFromLogin(url: string, email: string, password: string): Promise<string> {
+type Login = { access_token?: string; message?: string; user?: Me };
+
+async function tokenFromLogin(url: string, email: string, password: string): Promise<{ token: string; user?: Me }> {
   const login = await step("Sign-in (email/password)", () =>
-    anchorRequest<{ accessToken?: string; message?: string }>(url, null, "POST", "/auth/login", { email, password }),
+    anchorRequest<Login>(url, null, "POST", "/auth/login", { email, password }),
   );
-  if (!login.accessToken) throw new Error(login.message ?? "Login returned no token (account pending approval?)");
+  const jwt = login.access_token;
+  if (!jwt) throw new Error(login.message ?? "Login returned no token (account pending approval?)");
   // Reuse an existing API token: regenerating would break every other client using it.
   const current = await step("Reading your API token", () =>
-    anchorRequest<{ apiToken: string | null }>(url, login.accessToken!, "GET", "/auth/api-token"),
+    anchorRequest<{ apiToken: string | null }>(url, jwt, "GET", "/auth/api-token"),
   );
-  if (current.apiToken) return current.apiToken;
+  if (current.apiToken) return { token: current.apiToken, user: login.user };
   const created = await step("Creating an API token", () =>
-    anchorRequest<{ apiToken: string }>(url, login.accessToken!, "POST", "/auth/api-token/regenerate"),
+    anchorRequest<{ apiToken: string }>(url, jwt, "POST", "/auth/api-token/regenerate"),
   );
-  return created.apiToken;
+  return { token: created.apiToken, user: login.user };
 }
+
+/** /auth/me only takes session JWTs; the note and tag routes are the ones that accept API tokens. */
+export const checkApiToken = (url: string, token: string) => anchorRequest(url, token, "GET", "/tags");
 
 export async function setup(local: boolean) {
   const p = prompter();
@@ -99,15 +110,16 @@ export async function setup(local: boolean) {
     await anchorRequest(url, null, "GET", "/health");
 
     let token = "";
+    let user: Me | undefined;
     if (existing?.token && existing.url === url && (await p.yes("Keep the saved API token?"))) token = existing.token;
     else if (await p.yes("Sign in with email and password? (No = paste an API token)")) {
       const email = await p.ask("Email");
-      token = await tokenFromLogin(url, email, await p.secret("Password (not stored)"));
-    } else token = await p.secret("API token");
+      ({ token, user } = await tokenFromLogin(url, email, await p.secret("Password (not stored)")));
+    } else token = (await p.secret("API token")).trim();
 
-    const me = await step("Checking the API token", () => anchorRequest<Me>(url, token, "GET", "/auth/me"));
+    await step("Checking the API token", () => checkApiToken(url, token));
     saveConfig({ url, token });
-    console.log(`\nConnected as ${me.name ?? me.email}. Saved to ${CONFIG_PATH}\n`);
+    console.log(`\nConnected${user ? ` as ${user.name ?? user.email}` : ""}. Saved to ${CONFIG_PATH}\n`);
 
     if (hasClaudeCli()) {
       for (const profile of claudeCodeProfiles()) {
@@ -142,8 +154,8 @@ export async function doctor() {
     try {
       await anchorRequest(config.url, null, "GET", "/health");
       check(true, `server reachable at ${config.url}`);
-      const me = await anchorRequest<Me>(config.url, config.token, "GET", "/auth/me");
-      check(me.status === undefined || me.status === "active", `token valid, signed in as ${me.name ?? me.email}`);
+      await checkApiToken(config.url, config.token);
+      check(true, "API token accepted");
     } catch (e) {
       check(false, e instanceof AnchorError ? e.message : String(e));
     }
