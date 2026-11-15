@@ -1,0 +1,42 @@
+{
+  "name": "anchor-notes-mcp",
+  "version": "0.1.0",
+  "description": "MCP server for Anchor, the self-hosted notes app: Claude reads and writes your notes as markdown, formatting intact.",
+  "license": "AGPL-3.0-only",
+  "type": "module",
+  "bin": {
+    "anchor-notes-mcp": "dist/cli.js"
+  },
+  "files": [
+    "dist"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "build": "tsup",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "smoke": "node scripts/smoke.mjs",
+    "prepublishOnly": "npm run typecheck && npm test && npm run build"
+  },
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "anchor",
+    "notes",
+    "claude"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/NatanaelJose/anchor-notes-mcp.git"
+  },
+  "devDependencies": {
+    "@modelcontextprotocol/sdk": "^1.32.2",
+    "@types/node": "^26.6.6",
+    "tsup": "^9.0.0",
+    "typescript": "^7.0.2",
+    "vitest": "^5.1.0",
+    "zod": "^4.6.7"
+  }
+}
