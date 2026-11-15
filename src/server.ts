@@ -19,16 +19,17 @@ type Note = {
   permission?: string;
 };
 
-const SNIPPET = 200;
+// Long enough that most notes come back whole from a search, saving a get_note round trip per note.
+const PREVIEW = 1500;
 
 function view(note: Note, full: boolean) {
   const markdown = toMarkdown(note.content);
+  const truncated = !full && markdown.length > PREVIEW;
   return {
     id: note.id,
     title: note.title,
-    ...(full
-      ? { content: markdown }
-      : { snippet: markdown.length > SNIPPET ? `${markdown.slice(0, SNIPPET)}…` : markdown }),
+    content: truncated ? `${markdown.slice(0, PREVIEW)}…` : markdown,
+    ...(truncated && { truncated: true }),
     tagIds: note.tagIds,
     isPinned: note.isPinned,
     isArchived: note.isArchived,
@@ -75,32 +76,47 @@ const markdownField = z.string().describe(
     "[links](url), - bullets, 1. numbered, - [ ] / - [x] checklists (nest with 4 spaces), > quotes, ``` code blocks.",
 );
 
+const INSTRUCTIONS = `Anchor is the user's notes app. Use these tools whenever they mention their notes, Anchor, or ask to note/remember/write something down.
+- Start with search_notes: without \`search\` it lists recent notes, and every result already includes the note content as markdown (cut at ${PREVIEW} chars, marked truncated). Only call get_note for a truncated note or before update_note.
+- Search is plain substring matching, not semantic: use one short distinctive word. If nothing matches, the result includes recent notes, so you rarely need a second search.
+- To add to a note use append_to_note; use update_note (with the version from get_note) only to rewrite or remove text.
+- Content is markdown; titles go in \`title\`, not as a heading in the content.`;
+
 export function createServer() {
-  const server = new McpServer({ name: "anchor-notes", version: VERSION });
+  const server = new McpServer({ name: "anchor-notes", version: VERSION }, { instructions: INSTRUCTIONS });
 
   server.registerTool(
     "search_notes",
     {
-      description: "List or search active notes in Anchor. Returns snippets; use get_note for the full content.",
+      description:
+        "List (no `search`) or search the user's Anchor notes. Results include each note's markdown content " +
+        `(first ${PREVIEW} chars). If a search matches nothing, recent notes are returned instead.`,
       inputSchema: {
-        search: z.string().optional().describe("Text to search in titles and content"),
+        search: z.string().optional().describe("Substring to find in titles and content; one short word works best"),
         tagId: z.string().optional().describe("Only notes with this tag (ids from list_tags)"),
-        limit: z.number().int().positive().max(200).optional(),
+        limit: z.number().int().positive().max(200).optional().describe("Default 20"),
       },
     },
-    (args) =>
+    ({ limit = 20, ...args }) =>
       run(async () => {
-        const query = new URLSearchParams();
-        for (const [key, value] of Object.entries(args)) if (value !== undefined) query.set(key, String(value));
-        const notes = await api<Note[]>("GET", `/notes${query.size ? `?${query}` : ""}`);
-        return notes.map((note) => view(note, false));
+        const list = async (params: Record<string, unknown>) => {
+          const query = new URLSearchParams({ limit: String(limit) });
+          for (const [key, value] of Object.entries(params)) if (value !== undefined) query.set(key, String(value));
+          return (await api<Note[]>("GET", `/notes?${query}`)).map((note) => view(note, false));
+        };
+        const notes = await list(args);
+        if (notes.length || !args.search) return notes;
+        // Saves the model a second round trip after a miss.
+        return { matches: [], message: `No notes match "${args.search}". Recent notes:`, recent: await list({ tagId: args.tagId }) };
       }),
   );
 
   server.registerTool(
     "get_note",
     {
-      description: "Read one note as markdown, with its current version (needed by update_note).",
+      description:
+        "Read one whole note as markdown, with its current version. Needed only for notes search_notes marked " +
+        "truncated, or to get the version before update_note.",
       inputSchema: { id: z.string() },
     },
     ({ id: noteId }) => run(async () => view(await api<Note>("GET", `/notes/${id(noteId)}`), true)),

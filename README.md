@@ -40,8 +40,8 @@ claude mcp add --scope user anchor -e ANCHOR_URL=https://notes.example.com -e AN
 
 | Tool | What it does |
 |---|---|
-| `search_notes` | List or search notes (title and a snippet) |
-| `get_note` | Read a note as markdown, with its version |
+| `search_notes` | List or search notes; results already include each note's markdown (first 1,500 chars), and a search with no match returns recent notes |
+| `get_note` | Read a whole note as markdown, with its version |
 | `create_note` | Create a note from markdown |
 | `update_note` | Replace a note's title or content, tags, pin and archive state |
 | `append_to_note` | Add markdown at the end of a note |

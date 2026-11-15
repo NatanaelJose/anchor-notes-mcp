@@ -52,6 +52,9 @@ try {
 
   const found = await call("search_notes", { search: "smoke test" });
   assert.ok(found.some((n) => n.id === noteId), "search should find the note");
+  assert.equal(found.find((n) => n.id === noteId).content, appended.content, "search should carry the content");
+  const miss = await call("search_notes", { search: "zzqq-no-such-text" });
+  assert.ok(miss.recent.some((n) => n.id === noteId), "a miss should fall back to recent notes");
   await call("list_tags", {});
 
   if (process.argv.includes("--keep")) console.log(`\nKept note ${noteId}: open it in Anchor to check the formatting, then trash it.`);
