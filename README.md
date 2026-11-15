@@ -38,29 +38,34 @@ claude mcp add --scope user anchor -e ANCHOR_URL=https://notes.example.com -e AN
 
 ## Tools
 
-| Tool | What it does |
-|---|---|
-| `search_notes` | List or search notes; results already include each note's markdown (first 1,500 chars), and a search with no match returns recent notes |
-| `get_note` | Read a whole note as markdown, with its version |
-| `create_note` | Create a note from markdown |
-| `update_note` | Replace a note's title or content, tags, pin and archive state |
-| `append_to_note` | Add markdown at the end of a note |
-| `trash_note` | Move a note to the trash |
-| `list_tags` / `create_tag` | Manage tags |
+| Area | Tools | What they do |
+|---|---|---|
+| Notes | `search_notes` | List or search active, archived or trashed notes; results include each note's markdown (first 1,500 chars) |
+| | `get_note`, `create_note`, `update_note`, `append_to_note` | Read and write notes as markdown, including background color and reminders |
+| | `trash_note`, `restore_note` | Move to and back from the trash |
+| | `bulk_update_notes` | Trash, archive, pin, unpin or tag up to 200 notes at once |
+| History | `list_note_versions`, `get_note_version`, `restore_note_version` | Browse and restore earlier versions; every edit is kept |
+| Attachments | `list_attachments`, `get_attachment`, `add_attachment`, `delete_attachment` | Images are shown to Claude directly; audio and big files are saved to disk; upload images or audio from a local file |
+| Sharing | `find_users`, `list_shares`, `share_note`, `unshare_note` | Share notes with other users on your server as viewer or editor |
+| Tags | `list_tags`, `create_tag`, `update_tag`, `delete_tag` | Manage tags |
+| Backup | `export_notes` | Save a zip of all notes, as markdown or in Anchor's own format |
 
 **Safe edits:**
 
 - `update_note` sends the version Claude read. If you changed the note in the app in the meantime, Anchor rejects the write, nothing is lost, and Claude is told to re-read and retry.
 - `append_to_note` never rewrites the existing content.
-
-**Attachments:** attachments live outside the note text in Anchor. Edits never touch them, but this server does not read or upload them yet.
+- Every edit lands in the note's history, so a bad one can be undone with `restore_note_version`.
+- Notes are never deleted for good.
+- Tools that do delete something (an attachment, a tag, a share) are marked destructive, so your client can ask before running them.
+- Downloads never overwrite existing files.
 
 ## Security
 
 - Your API token stays in the local config file and only goes to your Anchor server.
 - Your password is never stored.
 - The server can't permanently delete notes, only move them to the trash.
-- `npx -y anchor-notes-mcp` always runs the latest release. To pin a version, use `anchor-notes-mcp@0.1.1` in your Claude config.
+- `add_attachment` only uploads image and audio files; `get_attachment` and `export_notes` only write new files.
+- `npx -y anchor-notes-mcp` always runs the latest release. To pin a version, use `anchor-notes-mcp@0.2.0` in your Claude config.
 
 See [SECURITY.md](SECURITY.md) for details and how to report a vulnerability.
 

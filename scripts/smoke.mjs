@@ -2,6 +2,9 @@
 // provokes a version conflict and trashes the note. Uses the saved config or
 // ANCHOR_URL/ANCHOR_TOKEN. Run `npm run build` first.
 import assert from "node:assert/strict";
+import { mkdtempSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 
@@ -19,6 +22,9 @@ const MARKDOWN = [
   "```",
   "",
 ].join("\n");
+
+const PIXEL_PNG =
+  "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==";
 
 const client = new Client({ name: "smoke", version: "1" });
 await client.connect(new StdioClientTransport({ command: process.execPath, args: ["dist/cli.js"], env: process.env }));
@@ -57,8 +63,30 @@ try {
   assert.ok(miss.recent.some((n) => n.id === noteId), "a miss should fall back to recent notes");
   await call("list_tags", {});
 
+  // History: the stale write above is kept as a conflict version; restore the original text.
+  const { versions } = await call("list_note_versions", { noteId });
+  const original = versions.find((v) => v.version === created.version && v.cause !== "conflict");
+  assert.ok(original, "the first version should be in history");
+  assert.equal((await call("get_note_version", { noteId, versionId: original.id })).content, MARKDOWN);
+  await call("restore_note_version", { noteId, versionId: original.id });
+  assert.equal((await call("get_note", { id: noteId })).content, MARKDOWN);
+
+  // Attachments: a real 1x1 PNG, shown inline, then deleted.
+  const png = join(mkdtempSync(join(tmpdir(), "anchor-smoke-")), "pixel.png");
+  writeFileSync(png, Buffer.from(PIXEL_PNG, "base64"));
+  const attachment = await call("add_attachment", { noteId, filePath: png });
+  const shown = await client.callTool({ name: "get_attachment", arguments: { noteId, attachmentId: attachment.id } });
+  assert.equal(shown.content[1]?.type, "image", "the image should come back inline");
+  console.log("ok  get_attachment (inline image)");
+  await call("delete_attachment", { noteId, attachmentId: attachment.id });
+  assert.deepEqual(await call("list_attachments", { noteId }), []);
+
   if (process.argv.includes("--keep")) console.log(`\nKept note ${noteId}: open it in Anchor to check the formatting, then trash it.`);
-  else await call("trash_note", { id: noteId });
+  else {
+    await call("trash_note", { id: noteId });
+    const trashed = await call("search_notes", { scope: "trash", search: "smoke test" });
+    assert.ok(trashed.some((n) => n.id === noteId), "the note should be in the trash");
+  }
   console.log("\nAll good.");
 } catch (e) {
   console.error(`\nFAILED: ${e.message}${noteId ? `\n(note ${noteId} may be left over; trash it in Anchor)` : ""}`);
